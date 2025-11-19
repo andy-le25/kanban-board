@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Link from "next/link";
 import "./globals.css";
+import Providers from './providers'
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -26,25 +27,27 @@ export default function RootLayout({
   return (
     <html lang = "en">
       <body className = {`${geistSans.variable} ${geistMono.variable} antialiased bg-slate-950 text-slate-50`}>
-        {/* Top nav */}
-        <header className = "w-full p-4 bg-slate-900 border-b border-slate-800">
-          <nav className = "mx-auto flex max-4xl justify-between items-center px-4 py-3">
-            <span className = "font-bold text-lg">Kanban Board</span>
-            <div className = "flex gap-4 text-sm">
-              <Link href="/" className="hover:underline">
-                Home
-              </Link>
-              <Link href="/about" className="hover:underline">
-                About
-              </Link>
-            </div>
-          </nav>
-        </header>
+        <Providers>
+          {/* Top nav */}
+          <header className = "w-full p-4 bg-slate-900 border-b border-slate-800">
+            <nav className = "mx-auto flex max-4xl justify-between items-center px-4 py-3">
+              <span className = "font-bold text-lg">Kanban Board</span>
+              <div className = "flex gap-4 text-sm">
+                <Link href="/" className="hover:underline">
+                  Home
+                </Link>
+                <Link href="/about" className="hover:underline">
+                  About
+                </Link>
+              </div>
+            </nav>
+          </header>
 
-        {/* Page content */}
-        <main className ="mx-auto max-w-4xl w-full px-4 py-6">
-          {children}
-        </main>
+          {/* Page content */}
+          <main className ="mx-auto max-w-4xl w-full px-4 py-6">
+            {children}
+          </main>
+        </Providers>
       </body>
     </html>
   );
