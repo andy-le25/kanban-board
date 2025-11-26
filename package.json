@@ -10,8 +10,10 @@
     "codegen": "graphql-codegen"
   },
   "dependencies": {
-    "@apollo/client": "^4.0.9",
+    "@apollo/client": "^3.14.0",
     "@apollo/client-integration-nextjs": "0.14.1",
+    "@nhost/react": "^3.11.2",
+    "@nhost/react-apollo": "^18.0.2",
     "@radix-ui/react-slot": "^1.2.4",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

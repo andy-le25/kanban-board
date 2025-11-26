@@ -30,7 +30,7 @@ export default function RootLayout({
         <Providers>
           {/* Top nav */}
           <header className = "w-full p-4 bg-slate-900 border-b border-slate-800">
-            <nav className = "mx-auto flex max-4xl justify-between items-center px-4 py-3">
+            <nav className = "mx-auto flex max-w-4xl justify-between items-center px-4 py-3">
               <span className = "font-bold text-lg">Kanban Board</span>
               <div className = "flex gap-4 text-sm">
                 <Link href="/" className="hover:underline">
