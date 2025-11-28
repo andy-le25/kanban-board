@@ -241,17 +241,25 @@ export default function BoardPage() {
     useState<string | null>(null)
   const [editingCardTitle, setEditingCardTitle] = useState('')
 
-  const serverCards: Card[] = cardsData?.cards || []
-  const [localCards, setLocalCards] = useState<Card[] | null>(null)
+  const [columns, setColumns] = useState<Column[]>([])
+  const [cards, setCards] = useState<Card[]>([])
   const [isDragging, setIsDragging] = useState(false)
 
   const board = boardData?.boards_by_pk
-  const columns: Column[] = columnsData?.columns || []
-  const cards: Card[] = localCards ?? serverCards
 
+  // keep columns in sync with server
   useEffect(() => {
-    if (!isDragging) setLocalCards(null)
-  }, [serverCards, isDragging])
+    if (columnsData?.columns) {
+      setColumns(columnsData.columns)
+    }
+  }, [columnsData])
+
+  // keep cards in sync when not dragging
+  useEffect(() => {
+    if (!isDragging && cardsData?.cards) {
+      setCards(cardsData.cards)
+    }
+  }, [cardsData, isDragging])
 
   if (!isAuthenticated) return <p className="p-6">Please sign in</p>
   if (!board) return <p className="p-6">Loading board...</p>
@@ -287,7 +295,8 @@ export default function BoardPage() {
       .filter(c => c.column_id === columnId)
       .sort((a, b) => a.position - b.position)
 
-    const position = (columnCards[columnCards.length - 1]?.position || 0) + 1
+    const position =
+      (columnCards[columnCards.length - 1]?.position || 0) + 1
 
     await insertCard({
       variables: { columnId, title, position },
@@ -297,125 +306,148 @@ export default function BoardPage() {
   }
 
   /* ===========================
-     Helpers for float positions
+     Drag Handling - smooth
   ============================ */
 
-  function computeNewPosition(
-    list: Card[],
-    destIndex: number
-  ): number {
-    if (list.length === 0) {
-      return 1
-    }
-
-    if (destIndex <= 0) {
-      return list[0].position - 1
-    }
-
-    if (destIndex >= list.length) {
-      return list[list.length - 1].position + 1
-    }
-
-    const prev = list[destIndex - 1].position
-    const next = list[destIndex].position
-    return (prev + next) / 2
-  }
-
-  function computeNewColumnPosition(
-    list: Column[],
-    destIndex: number
-  ): number {
-    if (list.length === 0) return 1
-
-    if (destIndex <= 0) return list[0].position - 1
-
-    if (destIndex >= list.length) {
-      return list[list.length - 1].position + 1
-    }
-
-    const prev = list[destIndex - 1].position
-    const next = list[destIndex].position
-    return (prev + next) / 2
-  }
-
-  /* ===========================
-     Drag Handling (float positions)
-  ============================ */
-
-  async function handleDragEnd(result: DropResult) {
-    setIsDragging(false)
-
-    if (!result.destination) {
-      setLocalCards(null)
+  function handleDragEnd(result: DropResult) {
+    const destination = result.destination
+    if (!destination) {
+      setIsDragging(false)
       return
     }
 
-    const { source, destination, type } = result
+    const { source, type } = result
 
-    // Column drag
+    // Columns
     if (type === 'COLUMN') {
-      const list = [...columns]
-      const [moved] = list.splice(source.index, 1)
-
-      const newPos = computeNewColumnPosition(list, destination.index)
-      moved.position = newPos
-
-      list.splice(destination.index, 0, moved)
-
-      await updateColumnPos({
-        variables: { id: moved.id, position: moved.position },
-      })
-
-      return
-    }
-
-    // Card drag
-    if (type === 'CARD') {
-      const startCol = source.droppableId
-      const endCol = destination.droppableId
-
-      // use fresh server data for correctness
-      const cloned = serverCards.map(c => ({ ...c }))
-
-      const grouped: Record<string, Card[]> = {}
-      for (const c of cloned) {
-        if (!grouped[c.column_id]) grouped[c.column_id] = []
-        grouped[c.column_id].push(c)
-      }
-
-      for (const list of Object.values(grouped)) {
-        list.sort((a, b) => a.position - b.position)
-      }
-
-      const startList = grouped[startCol] ?? []
-      const endList = grouped[endCol] ?? (grouped[endCol] = [])
-
-      if (!startList[source.index]) {
-        setLocalCards(null)
+      if (
+        destination.droppableId === source.droppableId &&
+        destination.index === source.index
+      ) {
+        setIsDragging(false)
         return
       }
 
-      const [moved] = startList.splice(source.index, 1)
+      setColumns(prev => {
+        const reordered = Array.from(prev)
+        const [moved] = reordered.splice(source.index, 1)
+        reordered.splice(destination.index, 0, moved)
 
-      const newPos = computeNewPosition(endList, destination.index)
-      moved.column_id = endCol
-      moved.position = newPos
+        const updates: Promise<unknown>[] = []
 
-      endList.splice(destination.index, 0, moved)
+        reordered.forEach((col, index) => {
+          const newPos = index + 1
+          if (col.position !== newPos) {
+            updates.push(
+              updateColumnPos({
+                variables: { id: col.id, position: newPos },
+              })
+            )
+          }
+        })
 
-      const finalCards = Object.values(grouped).flat()
-      setLocalCards(finalCards)
+        if (updates.length) {
+          Promise.all(updates).catch(err => {
+            console.error('Failed to update column positions', err)
+          })
+        }
 
-      await updateCardPos({
-        variables: {
-          id: moved.id,
-          columnId: moved.column_id,
-          position: moved.position,
-        },
+        // return new array with updated positions
+        return reordered.map((col, index) => ({
+          ...col,
+          position: index + 1,
+        }))
       })
 
+      setIsDragging(false)
       return
     }
+
+    // Cards
+    if (type === 'CARD') {
+      const startColId = source.droppableId
+      const endColId = destination.droppableId
+
+      if (
+        startColId === endColId &&
+        source.index === destination.index
+      ) {
+        setIsDragging(false)
+        return
+      }
+
+      setCards(prev => {
+        // group cards by column
+        const byColumn: Record<string, Card[]> = {}
+        prev.forEach(card => {
+          if (!byColumn[card.column_id]) byColumn[card.column_id] = []
+          byColumn[card.column_id].push(card)
+        })
+
+        Object.values(byColumn).forEach(list =>
+          list.sort((a, b) => a.position - b.position)
+        )
+
+        const sourceList = byColumn[startColId] ?? []
+        const destList =
+          byColumn[endColId] ?? (byColumn[endColId] = [])
+
+        if (!sourceList[source.index]) {
+          return prev
+        }
+
+        const movedOriginal = sourceList[source.index]
+
+        // remove from source, insert into dest - references only
+        sourceList.splice(source.index, 1)
+        destList.splice(destination.index, 0, movedOriginal)
+
+        const updates: Promise<unknown>[] = []
+        const nextCards: Card[] = []
+
+        // rebuild flat list with new positions and columns
+        Object.entries(byColumn).forEach(([colId, list]) => {
+          list.forEach((card, idx) => {
+            const newPos = idx + 1
+            const changed =
+              card.column_id !== colId || card.position !== newPos
+
+            const newCard: Card = {
+              ...card,
+              column_id: colId,
+              position: newPos,
+            }
+
+            nextCards.push(newCard)
+
+            if (changed) {
+              updates.push(
+                updateCardPos({
+                  variables: {
+                    id: card.id,
+                    columnId: colId,
+                    position: newPos,
+                  },
+                })
+              )
+            }
+          })
+        })
+
+        if (updates.length) {
+          Promise.all(updates).catch(err => {
+            console.error('Failed to update card positions', err)
+          })
+        }
+
+        return nextCards
+      })
+
+      setIsDragging(false)
+      return
+    }
+
+    setIsDragging(false)
   }
 
   /* ===========================
@@ -727,4 +759,3 @@ export default function BoardPage() {
     </div>
   )
 }
- 

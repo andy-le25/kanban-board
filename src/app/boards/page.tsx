@@ -6,7 +6,7 @@ import {
   useMutation,
 } from '@apollo/client'
 import { useAuthenticationStatus } from '@nhost/react'
-import { useState, FormEvent } from 'react'
+import { useState, useEffect, FormEvent } from 'react'
 import Link from 'next/link'
 import {
   DragDropContext,
@@ -90,18 +90,23 @@ const DELETE_BOARD = gql`
 export default function BoardsPage() {
   const { isAuthenticated } = useAuthenticationStatus()
 
-  const [newBoardName, setNewBoardName] = useState<string>('')
-
-  // three states that mirror your column/card logic
+  const [newBoardName, setNewBoardName] = useState('')
   const [boardMenuOpenId, setBoardMenuOpenId] = useState<string | null>(null)
   const [editingBoardId, setEditingBoardId] = useState<string | null>(null)
-  const [editingBoardName, setEditingBoardName] = useState<string>('')
+  const [editingBoardName, setEditingBoardName] = useState('')
 
   const { data } = useSubscription<{ boards: Board[] }>(BOARDS, {
     skip: !isAuthenticated,
   })
 
-  const boards: Board[] = data?.boards || []
+  // local state for smooth, optimistic drag and drop
+  const [boards, setBoards] = useState<Board[]>([])
+
+  useEffect(() => {
+    if (data?.boards) {
+      setBoards(data.boards)
+    }
+  }, [data])
 
   const [insertBoard] = useMutation(INSERT_BOARD)
   const [updateBoardPos] = useMutation(UPDATE_BOARD_POS)
@@ -119,7 +124,8 @@ export default function BoardsPage() {
     const name = newBoardName.trim()
     if (!name) return
 
-    const position = (boards[boards.length - 1]?.position || 0) + 1
+    const lastPosition = boards[boards.length - 1]?.position ?? 0
+    const position = lastPosition + 1
 
     await insertBoard({
       variables: { name, position },
@@ -132,21 +138,51 @@ export default function BoardsPage() {
      DRAG AND DROP
   =========================== */
 
-  async function handleDragEnd(result: DropResult) {
+  function handleDragEnd(result: DropResult) {
     if (!result.destination) return
 
-    const reordered = Array.from(boards)
-    const [moved] = reordered.splice(result.source.index, 1)
-    reordered.splice(result.destination.index, 0, moved)
+    const { source, destination } = result
 
-    for (let i = 0; i < reordered.length; i++) {
-      await updateBoardPos({
-        variables: {
-          id: reordered[i].id,
-          position: i + 1,
-        },
-      })
+    if (
+      destination.droppableId === source.droppableId &&
+      destination.index === source.index
+    ) {
+      return
     }
+
+    setBoards(prevBoards => {
+      const reordered = Array.from(prevBoards)
+      const [moved] = reordered.splice(source.index, 1)
+      reordered.splice(destination.index, 0, moved)
+
+      const updates: Promise<unknown>[] = []
+
+      // reindex only changed boards, send mutations in background
+      reordered.forEach((board, index) => {
+        const newPosition = index + 1
+        if (board.position !== newPosition) {
+          const updatedBoard = { ...board, position: newPosition }
+          reordered[index] = updatedBoard
+
+          updates.push(
+            updateBoardPos({
+              variables: {
+                id: updatedBoard.id,
+                position: newPosition,
+              },
+            })
+          )
+        }
+      })
+
+      if (updates.length > 0) {
+        Promise.all(updates).catch(err => {
+          console.error('Failed to update board positions', err)
+        })
+      }
+
+      return reordered
+    })
   }
 
   /* ===========================
@@ -248,7 +284,7 @@ export default function BoardsPage() {
                         </Link>
                       )}
 
-                      {/* Menu, same pattern as columns/cards */}
+                      {/* Menu */}
                       <div className="relative">
                         <button
                           type="button"

@@ -23,6 +23,10 @@ export default function Navbar() {
             Boards
           </Link>
 
+          <Link href="/about" className="hover:underline">
+            About
+          </Link>
+
           {!isAuthenticated && (
             <Link href="/login" className="hover:underline">
               Login
